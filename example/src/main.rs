@@ -1,13 +1,18 @@
-use std::env;
-use std::future::IntoFuture;
+/// There are 10^6 micro-lamports in one lamport
+const MICRO_LAMPORTS_PER_LAMPORT: u64 = 1_000_000;
+const BPS: u16 = 100;
 
+use std::env;
+
+use jupiter_swap_api_client::transaction_config::ComputeUnitPriceMicroLamports;
 use jupiter_swap_api_client::{
     quote::QuoteRequest, swap::SwapRequest, transaction_config::TransactionConfig,
     JupiterSwapApiClient,
 };
+
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::signer::Signer;
-use solana_sdk::{hash::Hash, pubkey::Pubkey, signature::NullSigner};
+use solana_sdk::{hash::Hash, pubkey::Pubkey};
 use solana_sdk::{pubkey, transaction::VersionedTransaction};
 use tokio;
 
@@ -17,6 +22,8 @@ const WENT_MINT: Pubkey = pubkey!("WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p3LCpk")
 
 const KEYPAIR_PATH: &str = ""; // change to your keypair path
 const RPC_URL: &str = "https://api.mainnet-beta.solana.com"; // change to your RPC URL
+const PRIORITY_RATE: f64 = 0.001; // set the compute unit price in lamports
+const SLIPPAGE: u16 = 20; // slippage in percentage
 
 #[tokio::main]
 async fn main() {
@@ -29,11 +36,11 @@ async fn main() {
 
     let jupiter_swap_api_client = JupiterSwapApiClient::new(api_base_url);
 
-    let quote_request = QuoteRequest {
+    let quote_request: QuoteRequest = QuoteRequest {
         amount: 1_000_000,
         input_mint: NATIVE_MINT,
         output_mint: WENT_MINT,
-        slippage_bps: 1000,
+        slippage_bps: SLIPPAGE*BPS,
         ..QuoteRequest::default()
     };
 
@@ -41,15 +48,23 @@ async fn main() {
     let quote_response = jupiter_swap_api_client.quote(&quote_request).await.unwrap();
     println!("{quote_response:#?}");
 
+    // Create SwapRequest with the provided values, including modifying the compute_unit_price_micro_lamports
+    let mut swap_request = SwapRequest {
+        user_public_key: trading_keypair.pubkey(),
+        quote_response: quote_response.clone(),
+        config: TransactionConfig::default(),
+    };
+
+    // Modify the compute_unit_price_micro_lamports value
+    let new_compute_unit_price = ComputeUnitPriceMicroLamports::MicroLamports(
+        (PRIORITY_RATE * MICRO_LAMPORTS_PER_LAMPORT as f64) as u64,
+    );
+    swap_request
+        .config
+        .set_compute_unit_price_micro_lamports(new_compute_unit_price);
+
     // POST /swap
-    let swap_response = jupiter_swap_api_client
-        .swap(&SwapRequest {
-            user_public_key: trading_keypair.pubkey(),
-            quote_response: quote_response.clone(),
-            config: TransactionConfig::default(),
-        })
-        .await
-        .unwrap();
+    let swap_response = jupiter_swap_api_client.swap(&swap_request).await.unwrap();
 
     println!("Raw tx len: {}", swap_response.swap_transaction.len());
 

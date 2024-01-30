@@ -68,3 +68,12 @@ impl Default for TransactionConfig {
         }
     }
 }
+
+impl TransactionConfig {
+    pub fn set_compute_unit_price_micro_lamports(
+        &mut self,
+        new_value: ComputeUnitPriceMicroLamports,
+    ) {
+        self.compute_unit_price_micro_lamports = Some(new_value);
+    }
+}
